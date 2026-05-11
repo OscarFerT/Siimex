@@ -116,8 +116,10 @@ public class SecurityConfig {
 
         // En dev: permite front local (Angular 4200, Vite 5173, localhost y 127.0.0.1)
         cfg.setAllowedOriginPatterns(List.of(
+                "http://localhost",
                 "http://localhost:4200",
                 "http://localhost:5173",
+                "http://127.0.0.1",
                 "http://127.0.0.1:4200",
                 "http://127.0.0.1:5173"
         ));
