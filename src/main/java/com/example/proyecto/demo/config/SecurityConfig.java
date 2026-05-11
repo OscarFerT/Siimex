@@ -48,32 +48,50 @@ public class SecurityConfig {
                         // Público
                         .requestMatchers("/error").permitAll()
                         .requestMatchers(HttpMethod.POST, "/contacto").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/contacto").permitAll()
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/auth/register",
+                                "/api/auth/register",
                                 "/auth/verify-email",
+                                "/api/auth/verify-email",
                                 "/auth/login",
+                                "/api/auth/login",
                                 "/auth/login-admin",
+                                "/api/auth/login-admin",
                                 "/auth/login/request-code",
+                                "/api/auth/login/request-code",
                                 "/auth/login/verify-code",
-                                "/auth/reset-password"
+                                "/api/auth/login/verify-code",
+                                "/auth/reset-password",
+                                "/api/auth/reset-password"
                         ).permitAll()
-                        .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/info").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/info", "/api/actuator/health", "/api/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.POST, "/registro1").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/registro1").permitAll()
                         .requestMatchers(HttpMethod.POST, "/migracion").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/migracion").authenticated()
 
 
                         // Usuarios: exige estar autenticado (primero probamos así para descartar rol)
                         //.requestMatchers("/usuarios/**").authenticated()
                         //.anyRequest().authenticated()
                         .requestMatchers(HttpMethod.GET, "/documentos/publico/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/documentos/publico/**").permitAll()
                         .requestMatchers("/documentos/**").authenticated()
+                        .requestMatchers("/api/documentos/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/folios-aprobados").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/folios-aprobados").permitAll()
                         .requestMatchers(HttpMethod.GET, "/usuarios/investigadores").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/usuarios/investigadores").permitAll()
                         .requestMatchers(HttpMethod.GET, "/convocatorias-imagenes/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/convocatorias-imagenes/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/usuarios/me").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/usuarios/me").authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/usuarios/me").authenticated()
+                        .requestMatchers(HttpMethod.PATCH, "/api/usuarios/me").authenticated()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
 
