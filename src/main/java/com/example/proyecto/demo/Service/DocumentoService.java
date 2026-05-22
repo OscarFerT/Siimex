@@ -28,7 +28,7 @@ public class DocumentoService {
     private final DocumentoRepository documentoRepository;
     private final UsuarioRepository usuarioRepository;
 
-    @Value("${app.upload.directory:usuarios}")
+    @Value("${app.upload.directory}")
     private String uploadBaseDirectory;
 
     private static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB

@@ -25,11 +25,11 @@ public class ConfiguracionSistemaService {
 
     private final ConfiguracionSistemaRepository configuracionSistemaRepository;
 
-    @Value("${app.registro.folio.prefix.investigador:SIIMEX-INV}")
+    @Value("${app.registro.folio.prefix.investigador}")
     private String defaultPrefixInvestigador;
-    @Value("${app.registro.folio.prefix.innovador:SIIMEX-IND}")
+    @Value("${app.registro.folio.prefix.innovador}")
     private String defaultPrefixInnovador;
-    @Value("${app.registro.folio.prefix.hibrido:SIIMEX-HIB}")
+    @Value("${app.registro.folio.prefix.hibrido}")
     private String defaultPrefixHibrido;
 
     public Map<String, Object> obtenerPrefijosRegistro() {

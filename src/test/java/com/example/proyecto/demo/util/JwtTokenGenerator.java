@@ -11,7 +11,10 @@ import java.util.List;
 
 public class JwtTokenGenerator {
     public static void main(String[] args) {
-        String base64Secret = "JCNFE4jsK5BTRTkU90gGJqOwB5YoPCTtpZwYGNCuAbQ="; // tu mismo secret
+        String base64Secret = System.getenv("JWT_SECRET_BASE64");
+        if (base64Secret == null || base64Secret.isBlank()) {
+            throw new IllegalStateException("Configura JWT_SECRET_BASE64 para generar tokens de prueba.");
+        }
         SecretKey key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(base64Secret));
 
         String jwt = Jwts.builder()

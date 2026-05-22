@@ -16,7 +16,7 @@ import java.nio.file.Paths;
 @CrossOrigin(origins = "*")
 public class ConvocatoriaImagenPublicController {
 
-    @Value("${app.upload.directory:usuarios}")
+    @Value("${app.upload.directory}")
     private String uploadBaseDirectory;
 
     @GetMapping("/{filename:.+}")

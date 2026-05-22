@@ -30,8 +30,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class MicrosoftGraphEmailService {
 
-    private static final String SEND_MAIL_URL_TEMPLATE = "https://graph.microsoft.com/v1.0/users/%s/sendMail";
-
     private static final String DEFAULT_SUBJECT = "Código de acceso SIIMEX COMECyT";
     private static final String REGISTRATION_VERIFICATION_SUBJECT = "Verificación de cuenta SIIMEX COMECyT";
 
@@ -41,10 +39,13 @@ public class MicrosoftGraphEmailService {
     @Value("${azure.sender-email:}")
     private String senderEmail;
 
+    @Value("${azure.send-mail-url-template}")
+    private String sendMailUrlTemplate;
+
     @Value("${app.verification.email.subject:}")
     private String subjectProperty;
 
-    @Value("${azure.save-to-sent-items:true}")
+    @Value("${azure.save-to-sent-items}")
     private boolean saveToSentItems;
 
     public void sendVerificationCode(String toEmail, String code) {
@@ -54,7 +55,7 @@ public class MicrosoftGraphEmailService {
         }
 
         String token = tokenService.getAccessToken();
-        String url = String.format(SEND_MAIL_URL_TEMPLATE, sender);
+        String url = String.format(sendMailUrlTemplate, sender);
 
         String subj = (subjectProperty != null && !subjectProperty.isBlank()) ? subjectProperty : DEFAULT_SUBJECT;
         Map<String, Object> body = Map.of(
@@ -95,7 +96,7 @@ public class MicrosoftGraphEmailService {
         }
 
         String token = tokenService.getAccessToken();
-        String url = String.format(SEND_MAIL_URL_TEMPLATE, sender);
+        String url = String.format(sendMailUrlTemplate, sender);
 
         String saludo = (nombreUsuario != null && !nombreUsuario.isBlank())
                 ? "Hola, " + nombreUsuario.trim() + ","
@@ -264,7 +265,7 @@ public class MicrosoftGraphEmailService {
             throw new IllegalStateException("Configure azure.sender-email para enviar correos");
         }
         String token = tokenService.getAccessToken();
-        String url = String.format(SEND_MAIL_URL_TEMPLATE, sender);
+        String url = String.format(sendMailUrlTemplate, sender);
         Map<String, Object> body = Map.of(
                 "message", Map.of(
                         "subject", subject,
@@ -290,7 +291,7 @@ public class MicrosoftGraphEmailService {
             throw new IllegalStateException("Configure azure.sender-email para enviar correos");
         }
         String token = tokenService.getAccessToken();
-        String url = String.format(SEND_MAIL_URL_TEMPLATE, sender);
+        String url = String.format(sendMailUrlTemplate, sender);
         Map<String, Object> body = Map.of(
                 "message", Map.of(
                         "subject", subject,

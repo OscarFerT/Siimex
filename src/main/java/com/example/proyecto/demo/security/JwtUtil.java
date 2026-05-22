@@ -21,7 +21,7 @@ public class JwtUtil {
 
     public JwtUtil(
             @Value("${security.jwt.secret-base64}") String base64Secret,
-            @Value("${security.jwt.expiration-ms:3600000}") long expirationMillis // 1h default
+            @Value("${security.jwt.expiration-ms}") long expirationMillis
     ) {
         this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(base64Secret));
         this.expirationMillis = expirationMillis;

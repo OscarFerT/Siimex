@@ -18,7 +18,7 @@ import java.util.UUID;
 @CrossOrigin(origins = "*")
 public class ConvocatoriaImagenController {
 
-    @Value("${app.upload.directory:usuarios}")
+    @Value("${app.upload.directory}")
     private String uploadBaseDirectory;
 
     private static final String CONVOCATORIAS_IMAGENES = "convocatorias-imagenes";

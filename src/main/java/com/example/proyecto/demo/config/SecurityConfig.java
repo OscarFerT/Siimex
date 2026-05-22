@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -13,6 +14,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -31,14 +33,44 @@ public class SecurityConfig {
     private final JwtFilter jwtFilter;
     private final RedirectUnauthorizedEntryPoint redirectUnauthorizedEntryPoint;
 
+    @Value("${app.cors.allowed-origin-patterns}")
+    private List<String> allowedOriginPatterns;
+
+    @Value("${app.security.require-https:false}")
+    private boolean requireHttps;
+
+    @Value("${app.security.hsts-max-age-seconds:31536000}")
+    private long hstsMaxAgeSeconds;
+
+    @Value("${app.security.content-security-policy:default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'}")
+    private String contentSecurityPolicy;
+
+    @Value("${app.security.permissions-policy:geolocation=(), microphone=(), camera=()}")
+    private String permissionsPolicy;
+
     @Bean
     public SecurityFilterChain api(HttpSecurity http) throws Exception {
         http
                 // API stateless: desactiva CSRF para permitir POST/PATCH/DELETE sin token CSRF
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-
-
+                .requiresChannel(channel -> {
+                    if (requireHttps) {
+                        channel.anyRequest().requiresSecure();
+                    }
+                })
+                .headers(headers -> headers
+                        .httpStrictTransportSecurity(hsts -> hsts
+                                .includeSubDomains(true)
+                                .preload(true)
+                                .maxAgeInSeconds(hstsMaxAgeSeconds)
+                        )
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(contentSecurityPolicy))
+                        .frameOptions(frame -> frame.deny())
+                        .contentTypeOptions(Customizer.withDefaults())
+                        .referrerPolicy(referrer -> referrer.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                        .permissionsPolicyHeader(permissions -> permissions.policy(permissionsPolicy))
+                )
 
                 // Autorizaciones
                 .authorizeHttpRequests(auth -> auth
@@ -114,15 +146,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
 
-        // En dev: permite front local (Angular 4200, Vite 5173, localhost y 127.0.0.1)
-        cfg.setAllowedOriginPatterns(List.of(
-                "http://localhost",
-                "http://localhost:4200",
-                "http://localhost:5173",
-                "http://127.0.0.1",
-                "http://127.0.0.1:4200",
-                "http://127.0.0.1:5173"
-        ));
+        cfg.setAllowedOriginPatterns(allowedOriginPatterns);
 
         cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
         cfg.setAllowedHeaders(List.of("*")); // incluye Content-Type y Authorization

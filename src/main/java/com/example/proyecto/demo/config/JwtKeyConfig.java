@@ -16,7 +16,7 @@ import javax.crypto.SecretKey;
 public class JwtKeyConfig {
     @Bean
     public SecretKey jwtSecretKey(
-            @Value("${security.jwt.secret-base64:}") String base64Secret,
+            @Value("${security.jwt.secret-base64}") String base64Secret,
             @Value("${spring.profiles.active:}") String activeProfiles
     ) {
         if (StringUtils.hasText(base64Secret)) {
