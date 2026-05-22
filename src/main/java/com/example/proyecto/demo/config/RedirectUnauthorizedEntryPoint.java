@@ -19,7 +19,7 @@ import java.util.Map;
 @Component
 public class RedirectUnauthorizedEntryPoint implements AuthenticationEntryPoint {
 
-    @Value("${app.frontend.url:http://localhost:4200}")
+    @Value("${app.frontend.url}")
     private String frontendUrl;
 
     private final ObjectMapper objectMapper = new ObjectMapper();

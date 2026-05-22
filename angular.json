@@ -40,6 +40,7 @@
               "node_modules/bootstrap/dist/js/bootstrap.bundle.min.js"
             ],
             "allowedCommonJsDependencies": [
+              "exceljs",
               "sweetalert2",
               "canvg",
               "html2canvas",

@@ -48,7 +48,7 @@ public class AuthService {
     private static final int VERIFICATION_TOKEN_EXPIRY_HOURS = 24;
     private static final int REMEMBER_TOKEN_DAYS = 30;
 
-    @Value("${app.frontend.url:http://localhost:4200}")
+    @Value("${app.frontend.url}")
     private String frontendUrl;
 
     private final AuthUserRepository authUserRepo;

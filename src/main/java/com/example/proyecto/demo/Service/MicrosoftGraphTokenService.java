@@ -19,27 +19,29 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class MicrosoftGraphTokenService {
 
-    private static final String TOKEN_URL_TEMPLATE = "https://login.microsoftonline.com/%s/oauth2/v2.0/token";
-    private static final String SCOPE = "https://graph.microsoft.com/.default";
     private static final long TOKEN_EXPIRY_BUFFER_SECONDS = 60;
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final String clientId;
     private final String tenantId;
     private final String clientSecret;
+    private final String scope;
     private final String tokenUrl;
 
     private String cachedToken;
     private Instant tokenExpiresAt;
 
     public MicrosoftGraphTokenService(
-            @Value("${azure.client-id:}") String clientId,
-            @Value("${azure.tenant-id:}") String tenantId,
-            @Value("${azure.client-secret:}") String clientSecret) {
+            @Value("${azure.client-id}") String clientId,
+            @Value("${azure.tenant-id}") String tenantId,
+            @Value("${azure.client-secret}") String clientSecret,
+            @Value("${azure.token-url-template}") String tokenUrlTemplate,
+            @Value("${azure.scope}") String scope) {
         this.clientId = clientId != null ? clientId.trim() : "";
         this.tenantId = tenantId != null ? tenantId.trim() : "";
         this.clientSecret = clientSecret != null ? clientSecret.trim() : "";
-        this.tokenUrl = String.format(TOKEN_URL_TEMPLATE, this.tenantId);
+        this.scope = scope != null ? scope.trim() : "";
+        this.tokenUrl = String.format(tokenUrlTemplate, this.tenantId);
     }
 
     public String getAccessToken() {
@@ -53,7 +55,7 @@ public class MicrosoftGraphTokenService {
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
         params.add("client_id", clientId);
         params.add("client_secret", clientSecret);
-        params.add("scope", SCOPE);
+        params.add("scope", scope);
         params.add("grant_type", "client_credentials");
 
         @SuppressWarnings("unchecked")
