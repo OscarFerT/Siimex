@@ -14,6 +14,7 @@ import com.example.proyecto.demo.Repository.PostulacionDocumentoRepository;
 import com.example.proyecto.demo.Repository.PostulacionRepository;
 import com.example.proyecto.demo.Repository.UsuarioRepository;
 import com.example.proyecto.demo.exception.ApiException;
+import com.example.proyecto.demo.util.FileSecurityUtils;
 import com.example.proyecto.demo.util.SimplePdfGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -632,7 +633,7 @@ public class PostulacionService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Debes seleccionar un archivo PDF");
         }
         if (!esPdf(archivo)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Solo se permiten archivos PDF");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Solo se permiten archivos PDF sin metadatos");
         }
         if (archivo.getSize() > MAX_DOC_EVAL_FIRMADO_BYTES) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El archivo firmado no puede superar 8 MB");
@@ -1050,7 +1051,7 @@ public class PostulacionService {
         }
         validarVentanaInformeParcial(p);
         if (!esPdf(archivo)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "El informe parcial debe ser un PDF");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El informe parcial debe ser un PDF sin metadatos");
         }
         if (archivo.getSize() > 8 * 1024 * 1024) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El informe parcial no puede superar 8 MB");
@@ -1094,7 +1095,7 @@ public class PostulacionService {
         }
         validarVentanaInformeFinal(p);
         if (!esPdf(archivo)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "El informe final debe ser un PDF");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El informe final debe ser un PDF sin metadatos");
         }
         if (archivo.getSize() > 8 * 1024 * 1024) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El informe final no puede superar 8 MB");
@@ -1383,7 +1384,7 @@ public class PostulacionService {
 
     private Documento guardarCurriculum(Long usuarioId, Long convocatoriaId, MultipartFile cvFile) throws IOException {
         if (!esPdf(cvFile)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "El curr\u00edculum debe ser un PDF");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El curr\u00edculum debe ser un PDF sin metadatos");
         }
         if (cvFile.getSize() > 5 * 1024 * 1024) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El archivo no puede superar 5 MB");
@@ -1625,7 +1626,7 @@ public class PostulacionService {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Falta documento requerido: " + r.etiqueta());
             }
             if (!esFormatoSolicitud(f)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, r.etiqueta() + ": solo se permiten archivos PDF, Word o Excel");
+                throw new ApiException(HttpStatus.BAD_REQUEST, r.etiqueta() + ": solo se permiten archivos PDF sin metadatos, DOCX o XLSX");
             }
             if (f.getSize() > 10 * 1024 * 1024) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, r.etiqueta() + ": el archivo no puede superar 10 MB");
@@ -1640,7 +1641,7 @@ public class PostulacionService {
             if (f == null || f.isEmpty()) continue;
             String clave = e.getKey();
             if (!esFormatoSolicitud(f)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Documento adjunto (" + clave + "): solo se permiten archivos PDF, Word o Excel");
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Documento adjunto (" + clave + "): solo se permiten archivos PDF sin metadatos, DOCX o XLSX");
             }
             if (f.getSize() > 10 * 1024 * 1024) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "Documento adjunto (" + clave + "): el archivo no puede superar 10 MB");
@@ -1675,17 +1676,7 @@ public class PostulacionService {
     private boolean esFormatoSolicitud(MultipartFile file) {
         if (file == null || file.isEmpty()) return false;
         if (esPdf(file)) return true;
-        String contentType = file.getContentType();
-        String nombre = file.getOriginalFilename();
-        String mime = contentType != null ? contentType.toLowerCase(Locale.ROOT) : "";
-        String lower = nombre != null ? nombre.toLowerCase(Locale.ROOT) : "";
-        return lower.endsWith(".doc")
-                || lower.endsWith(".docx")
-                || lower.endsWith(".xls")
-                || lower.endsWith(".xlsx")
-                || mime.contains("word")
-                || mime.contains("excel")
-                || mime.contains("spreadsheet");
+        return FileSecurityUtils.isOfficeDocument(file);
     }
 
     private String validarTipoApoyoConvocatoria(Convocatoria convocatoria, String tipoApoyo) {
@@ -2364,7 +2355,7 @@ public class PostulacionService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Debes adjuntar el recibo de pago");
         }
         if (!esPdf(archivo)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "El recibo de pago debe ser un PDF");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El recibo de pago debe ser un PDF sin metadatos");
         }
         if (archivo.getSize() > 8L * 1024L * 1024L) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El recibo de pago no puede superar 8 MB");

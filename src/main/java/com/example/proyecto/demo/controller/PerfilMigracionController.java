@@ -5,6 +5,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.example.proyecto.demo.util.FileSecurityUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -35,6 +37,8 @@ public class PerfilMigracionController {
     private final DocumentoService documentoService;
     private final UsuarioRepository usuarioRepository;
     private final PerfilMigracionRepository perfilMigracionRepository;
+    private final ObjectMapper objectMapper;
+    private static final long MAX_MIGRACION_JSON_SIZE = 1L * 1024L * 1024L;
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
@@ -188,7 +192,6 @@ public class PerfilMigracionController {
                 throw e;
             } catch (Exception e) {
                 log.error(">>> Error inesperado al guardar PerfilMigracion: {}", e.getMessage(), e);
-                log.error(">>> Stack trace completo:", e);
                 throw e;
             }
             
@@ -268,18 +271,9 @@ public class PerfilMigracionController {
             return ResponseEntity.status(e.getStatusCode()).body(errorResponse);
         } catch (Exception e) {
             log.error(">>> Error inesperado al procesar perfil: {}", e.getMessage(), e);
-            log.error(">>> Stack trace completo:", e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("status", "error");
-            String errorMessage = "Error al procesar el perfil";
-            if (e.getMessage() != null) {
-                errorMessage += ": " + e.getMessage();
-            }
-            // Incluir información adicional para debugging
-            if (e.getCause() != null) {
-                errorMessage += " (Causa: " + e.getCause().getMessage() + ")";
-            }
-            errorResponse.put("message", errorMessage);
+            errorResponse.put("message", "Error al procesar el perfil");
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
@@ -297,6 +291,9 @@ public class PerfilMigracionController {
 
         try {
             // Obtener el usuario autenticado
+            if (auth == null || auth.getPrincipal() == null) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuario no autenticado");
+            }
             Long authUserId = (Long) auth.getPrincipal();
             Usuario usuario = usuarioRepository.findByAuthUserIdWithRegistro1(authUserId)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
@@ -309,11 +306,12 @@ public class PerfilMigracionController {
                 migracionId = "MIG_" + usuarioId + "_" + UUID.randomUUID().toString().substring(0, 8);
                 log.info(">>> migracionId generado automáticamente: {}", migracionId);
             }
+            validarJsonMigracion(migracionJson);
 
             // Aquí se procesaría el archivo JSON y se importarían los datos
             // Por ahora, solo registramos que se recibió
             log.info(">>> Archivo JSON recibido: {} ({} bytes)", 
-                    migracionJson.getOriginalFilename(), migracionJson.getSize());
+                    FileSecurityUtils.sanitizeFilename(migracionJson.getOriginalFilename(), "migracion.json"), migracionJson.getSize());
 
             // TODO: Implementar el procesamiento del JSON y la importación de datos históricos
             // Por ahora retornamos éxito
@@ -322,8 +320,7 @@ public class PerfilMigracionController {
             response.put("message", "Migración procesada exitosamente");
             response.put("usuarioId", usuarioId);
             response.put("migracionId", migracionId);
-            response.put("archivo", migracionJson.getOriginalFilename() != null 
-                    ? migracionJson.getOriginalFilename() : "archivo_desconocido");
+            response.put("archivo", FileSecurityUtils.sanitizeFilename(migracionJson.getOriginalFilename(), "archivo_desconocido.json"));
             
             return ResponseEntity.ok(response);
 
@@ -331,9 +328,23 @@ public class PerfilMigracionController {
             log.error(">>> Error al procesar migración: {}", e.getMessage(), e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("status", "error");
-            errorResponse.put("message", "Error al procesar la migración: " + (e.getMessage() != null ? e.getMessage() : "Error desconocido"));
+            errorResponse.put("message", "Error al procesar la migración");
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
+    }
+
+    private void validarJsonMigracion(MultipartFile migracionJson) throws Exception {
+        if (migracionJson == null || migracionJson.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Archivo JSON requerido");
+        }
+        if (migracionJson.getSize() > MAX_MIGRACION_JSON_SIZE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El archivo JSON no puede superar 1 MB");
+        }
+        String nombre = FileSecurityUtils.sanitizeFilename(migracionJson.getOriginalFilename(), "migracion.json");
+        if (!nombre.toLowerCase(java.util.Locale.ROOT).endsWith(".json")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Solo se permiten archivos JSON");
+        }
+        objectMapper.readTree(migracionJson.getBytes());
     }
 
     /**
@@ -446,7 +457,7 @@ public class PerfilMigracionController {
             log.error(">>> Error al verificar PerfilMigracion: {}", e.getMessage(), e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("tienePerfilMigracion", false);
-            errorResponse.put("error", e.getMessage() != null ? e.getMessage() : "Error desconocido");
+            errorResponse.put("error", "Error al verificar perfil");
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }

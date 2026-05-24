@@ -1,6 +1,9 @@
 package com.example.proyecto.demo.controller;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 
@@ -29,6 +32,12 @@ public class AuthController {
     private final AuthService authService;
     private final AuditLogService auditLogService;
 
+    @Value("${security.jwt.expiration-ms}")
+    private long jwtExpirationMs;
+
+    @Value("${app.security.require-https:false}")
+    private boolean secureCookies;
+
     // --- Endpoints de Autenticación ---
 
     @PostMapping("/register")
@@ -49,17 +58,17 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public JwtResponse login(@Valid @RequestBody LoginRequest req, HttpServletRequest http) {
-        JwtResponse resp = new JwtResponse(authService.login(req));
+    public ResponseEntity<JwtResponse> login(@Valid @RequestBody LoginRequest req, HttpServletRequest http) {
+        String token = authService.login(req);
         auditLogService.registrarAuth("LOGIN", "Inicio de sesión exitoso", req.email(), getIp(http));
-        return resp;
+        return withAuthCookie(new JwtResponse(token), token);
     }
 
     @PostMapping("/login-admin")
-    public JwtResponse loginAdmin(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+    public ResponseEntity<JwtResponse> loginAdmin(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
         String token = authService.loginAdmin(request);
         auditLogService.registrarAuth("LOGIN_ADMIN", "Inicio de sesión de administrador", request.email(), getIp(http));
-        return new JwtResponse(token);
+        return withAuthCookie(new JwtResponse(token), token);
     }
 
     @PostMapping("/login/request-code")
@@ -70,14 +79,31 @@ public class AuthController {
         } else {
             auditLogService.registrarAuth("LOGIN_2FA_CODIGO", "Código 2FA solicitado", request.getEmail(), getIp(http));
         }
+        if (response.getToken() != null) {
+            return withAuthCookie(response, response.getToken());
+        }
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/login/verify-code")
-    public LoginStep2Response loginVerifyCode(@Valid @RequestBody LoginStep2Request request, HttpServletRequest http) {
+    public ResponseEntity<LoginStep2Response> loginVerifyCode(@Valid @RequestBody LoginStep2Request request, HttpServletRequest http) {
         LoginStep2Response resp = authService.loginStep2VerifyCode(request);
         auditLogService.registrarAuth("LOGIN_2FA_OK", "Verificación 2FA exitosa", request.getEmail(), getIp(http));
-        return resp;
+        return withAuthCookie(resp, resp.token());
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout() {
+        ResponseCookie cookie = ResponseCookie.from("COMECYT_AUTH", "")
+                .httpOnly(true)
+                .secure(secureCookies)
+                .sameSite("Lax")
+                .path("/")
+                .maxAge(0)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(Map.of("success", true));
     }
 
     @PostMapping("/reset-password")
@@ -98,7 +124,7 @@ public class AuthController {
         } catch (Exception e) {
             return ResponseEntity.status(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR).body(java.util.Map.of(
                 "success", false,
-                "message", "Error al actualizar la contraseña: " + e.getMessage()
+                "message", "Error interno del servidor"
             ));
         }
     }
@@ -118,5 +144,18 @@ public class AuthController {
         String xff = req.getHeader("X-Forwarded-For");
         if (xff != null && !xff.isBlank()) return xff.split(",")[0].trim();
         return req.getRemoteAddr();
+    }
+
+    private <T> ResponseEntity<T> withAuthCookie(T body, String token) {
+        ResponseCookie cookie = ResponseCookie.from("COMECYT_AUTH", token)
+                .httpOnly(true)
+                .secure(secureCookies)
+                .sameSite("Lax")
+                .path("/")
+                .maxAge(Math.max(1, jwtExpirationMs / 1000))
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(body);
     }
 }

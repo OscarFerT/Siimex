@@ -46,7 +46,7 @@ public class MicrosoftGraphTokenService {
 
     public String getAccessToken() {
         if (clientId.isBlank() || tenantId.isBlank() || clientSecret.isBlank()) {
-            throw new IllegalStateException("Configure AZURE_CLIENT_ID, AZURE_TENANT_ID y AZURE_CLIENT_SECRET (variables de entorno)");
+            throw new IllegalStateException("Configuración de correo incompleta");
         }
         if (cachedToken != null && tokenExpiresAt != null && Instant.now().plusSeconds(TOKEN_EXPIRY_BUFFER_SECONDS).isBefore(tokenExpiresAt)) {
             return cachedToken;

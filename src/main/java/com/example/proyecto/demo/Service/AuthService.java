@@ -3,9 +3,11 @@ package com.example.proyecto.demo.Service;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -47,9 +49,13 @@ public class AuthService {
 
     private static final int VERIFICATION_TOKEN_EXPIRY_HOURS = 24;
     private static final int REMEMBER_TOKEN_DAYS = 30;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Value("${app.frontend.url}")
     private String frontendUrl;
+
+    @Value("${security.jwt.expiration-ms}")
+    private long jwtExpirationMs;
 
     private final AuthUserRepository authUserRepo;
     private final EmailVerificationTokenRepository emailVerificationTokenRepo;
@@ -61,6 +67,7 @@ public class AuthService {
     private final MicrosoftGraphEmailService microsoftGraphEmailService;
     private final NotificacionService notificacionService;
     private final ConfiguracionSistemaService configuracionSistemaService;
+    private final AuthAttemptService authAttemptService;
 
     public AuthService(AuthUserRepository authUserRepo,
                        EmailVerificationTokenRepository emailVerificationTokenRepo,
@@ -71,7 +78,8 @@ public class AuthService {
                        VerificationCodeService verificationCodeService,
                        MicrosoftGraphEmailService microsoftGraphEmailService,
                        NotificacionService notificacionService,
-                       ConfiguracionSistemaService configuracionSistemaService) {
+                       ConfiguracionSistemaService configuracionSistemaService,
+                       AuthAttemptService authAttemptService) {
         this.authUserRepo = authUserRepo;
         this.emailVerificationTokenRepo = emailVerificationTokenRepo;
         this.usuarioRepo = usuarioRepo;
@@ -82,6 +90,7 @@ public class AuthService {
         this.microsoftGraphEmailService = microsoftGraphEmailService;
         this.notificacionService = notificacionService;
         this.configuracionSistemaService = configuracionSistemaService;
+        this.authAttemptService = authAttemptService;
     }
 
     @Transactional
@@ -222,26 +231,25 @@ public class AuthService {
 
 
     public String login(LoginRequest req) {
-        AuthUser au = authUserRepo.findByEmail(req.email())
-                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales inválidas"));
+        String email = req.email().trim().toLowerCase();
+        authAttemptService.assertNotLocked("login", email);
+        AuthUser au = authUserRepo.findByEmail(email)
+                .orElseThrow(() -> {
+                    authAttemptService.recordFailure("login", email);
+                    return new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales inválidas");
+                });
         if (!encoder.matches(req.password(), au.getPasswordHash())) {
+            authAttemptService.recordFailure("login", email);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales inválidas");
         }
         if (!au.isEnabled()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Debes verificar tu correo electrónico antes de iniciar sesión. Revisa tu bandeja de entrada.");
         }
+        authAttemptService.recordSuccess("login", email);
         au.setLastLoginAt(Instant.now());
         authUserRepo.save(au);
 
-        String token = Jwts.builder()
-                .subject(String.valueOf(au.getId()))
-                .claim("username", au.getUsername())
-                .claim("roles", au.getRoles())
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 3600_000))
-                .signWith(key, SignatureAlgorithm.HS256)
-                .compact();
-        return token;
+        return buildJwt(au);
     }
 
     /**
@@ -250,9 +258,15 @@ public class AuthService {
      * Si no, genera código y lo envía por correo.
      */
     public LoginStep1Response loginStep1RequestCode(LoginStep1Request req) {
-        AuthUser au = authUserRepo.findByEmail(req.getEmail().trim().toLowerCase())
-                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales inválidas"));
+        String email = req.getEmail().trim().toLowerCase();
+        authAttemptService.assertNotLocked("login", email);
+        AuthUser au = authUserRepo.findByEmail(email)
+                .orElseThrow(() -> {
+                    authAttemptService.recordFailure("login", email);
+                    return new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales inválidas");
+                });
         if (!encoder.matches(req.getPassword(), au.getPasswordHash())) {
+            authAttemptService.recordFailure("login", email);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales inválidas");
         }
         if (!au.isEnabled()) {
@@ -262,6 +276,7 @@ public class AuthService {
         if (adminOnly && !au.getRoles().contains("ROLE_ADMIN")) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Acceso solo para administradores");
         }
+        authAttemptService.recordSuccess("login", email);
 
         // Si envía rememberToken válido -> login directo sin 2FA
         if (req.getRememberToken() != null && !req.getRememberToken().isBlank()) {
@@ -280,7 +295,6 @@ public class AuthService {
             }
         }
 
-        String email = au.getEmail();
         String code = verificationCodeService.generateAndStore(email);
         microsoftGraphEmailService.sendVerificationCode(email, code);
         return new LoginStep1Response(true, email);
@@ -305,9 +319,12 @@ public class AuthService {
      */
     public LoginStep2Response loginStep2VerifyCode(LoginStep2Request req) {
         String email = req.getEmail().trim().toLowerCase();
+        authAttemptService.assertNotLocked("2fa", email);
         if (!verificationCodeService.verify(email, req.getCode())) {
+            authAttemptService.recordFailure("2fa", email);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Código inválido o expirado. Solicita uno nuevo.");
         }
+        authAttemptService.recordSuccess("2fa", email);
         AuthUser au = authUserRepo.findByEmail(email)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales inválidas"));
         boolean adminOnly = Boolean.TRUE.equals(req.getAdminOnly());
@@ -329,24 +346,24 @@ public class AuthService {
      * Login exclusivo para administradores. Valida credenciales y que el usuario tenga ROLE_ADMIN.
      */
     public String loginAdmin(LoginRequest req) {
-        AuthUser au = authUserRepo.findByEmail(req.email().trim().toLowerCase())
-                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales inválidas"));
+        String email = req.email().trim().toLowerCase();
+        authAttemptService.assertNotLocked("admin-login", email);
+        AuthUser au = authUserRepo.findByEmail(email)
+                .orElseThrow(() -> {
+                    authAttemptService.recordFailure("admin-login", email);
+                    return new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales inválidas");
+                });
         if (!encoder.matches(req.password(), au.getPasswordHash())) {
+            authAttemptService.recordFailure("admin-login", email);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales inválidas");
         }
         if (!au.getRoles().contains("ROLE_ADMIN")) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Acceso solo para administradores");
         }
+        authAttemptService.recordSuccess("admin-login", email);
         au.setLastLoginAt(Instant.now());
         authUserRepo.save(au);
-        return Jwts.builder()
-                .subject(String.valueOf(au.getId()))
-                .claim("username", au.getUsername())
-                .claim("roles", au.getRoles())
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 3600_000))
-                .signWith(key, SignatureAlgorithm.HS256)
-                .compact();
+        return buildJwt(au);
     }
 
     @Transactional
@@ -432,13 +449,15 @@ public class AuthService {
                 .claim("username", au.getUsername())
                 .claim("roles", au.getRoles())
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 3600_000))
+                .expiration(new Date(System.currentTimeMillis() + jwtExpirationMs))
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
 
     private String generateRememberToken(AuthUser au) {
-        String rawToken = UUID.randomUUID().toString().replace("-", "");
+        byte[] tokenBytes = new byte[32];
+        SECURE_RANDOM.nextBytes(tokenBytes);
+        String rawToken = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
         au.setRememberTokenHash(sha256(rawToken));
         au.setRememberTokenExpiry(Instant.now().plus(REMEMBER_TOKEN_DAYS, ChronoUnit.DAYS));
         return rawToken;

@@ -4,6 +4,7 @@ import com.example.proyecto.demo.Entity.Documento;
 import com.example.proyecto.demo.Entity.Usuario;
 import com.example.proyecto.demo.Repository.DocumentoRepository;
 import com.example.proyecto.demo.Repository.UsuarioRepository;
+import com.example.proyecto.demo.util.FileSecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -74,7 +75,7 @@ public class DocumentoService {
             documentoRepository.findByUsuarioIdAndTipo(usuarioId, Documento.TipoDocumento.CURRICULUM)
                     .ifPresent(docAnterior -> {
                         try {
-                            Path archivoAnterior = usuarioDir.resolve(docAnterior.getNombreArchivo());
+                            Path archivoAnterior = FileSecurityUtils.resolveInside(usuarioDir, docAnterior.getNombreArchivo());
                             if (Files.exists(archivoAnterior)) {
                                 Files.delete(archivoAnterior);
                             }
@@ -168,7 +169,7 @@ public class DocumentoService {
     private Path crearDirectorioUsuario(Long usuarioId) throws IOException {
         // Crear ruta: {uploadBaseDirectory}/{usuarioId}/
         // Funciona con rutas relativas (desde donde se ejecuta) y absolutas
-        Path baseDir = Paths.get(uploadBaseDirectory, String.valueOf(usuarioId));
+        Path baseDir = Paths.get(uploadBaseDirectory, String.valueOf(usuarioId)).toAbsolutePath().normalize();
         
         if (!Files.exists(baseDir)) {
             Files.createDirectories(baseDir);
@@ -182,15 +183,16 @@ public class DocumentoService {
      */
     private Documento crearDocumento(Usuario usuario, MultipartFile archivo, Documento.TipoDocumento tipo, Path usuarioDir) throws IOException {
         // Guardar archivo físicamente en la carpeta del usuario
-        String nombreArchivo = archivo.getOriginalFilename();
-        if (nombreArchivo == null || nombreArchivo.isEmpty()) {
-            nombreArchivo = tipo.name() + "_" + System.currentTimeMillis();
-        }
+        String nombreArchivo = FileSecurityUtils.sanitizeFilename(
+                archivo.getOriginalFilename(),
+                tipo.name() + "_" + System.currentTimeMillis()
+        );
         
         // Prevenir nombres de archivo duplicados
         String nombreFinal = generarNombreArchivo(tipo, nombreArchivo, usuarioDir);
-        Path archivoPath = usuarioDir.resolve(nombreFinal);
-        Files.copy(archivo.getInputStream(), archivoPath, StandardCopyOption.REPLACE_EXISTING);
+        Path archivoPath = FileSecurityUtils.resolveInside(usuarioDir, nombreFinal);
+        byte[] archivoBytes = bytesParaGuardar(archivo, tipo, nombreFinal);
+        Files.write(archivoPath, archivoBytes);
         
         log.info("Archivo guardado físicamente: {}", archivoPath.toAbsolutePath());
 
@@ -199,9 +201,9 @@ public class DocumentoService {
                 .usuario(usuario)
                 .tipo(tipo)
                 .nombreArchivo(nombreFinal)
-                .contentType(archivo.getContentType() != null ? archivo.getContentType() : "application/octet-stream")
-                .sizeBytes(archivo.getSize())
-                .contenido(archivo.getBytes()) // También guardamos como BLOB en BD
+                .contentType(FileSecurityUtils.safeContentTypeForFilename(nombreFinal))
+                .sizeBytes((long) archivoBytes.length)
+                .contenido(archivoBytes) // También guardamos como BLOB en BD
                 .build();
     }
 
@@ -209,22 +211,23 @@ public class DocumentoService {
      * Genera un nombre único para el archivo
      */
     private String generarNombreArchivo(Documento.TipoDocumento tipo, String nombreOriginal, Path usuarioDir) {
-        String nombreBase = tipo.name() + "_" + nombreOriginal;
-        Path archivoPath = usuarioDir.resolve(nombreBase);
+        String nombreSeguro = FileSecurityUtils.sanitizeFilename(nombreOriginal, tipo.name() + "_" + System.currentTimeMillis());
+        String nombreBase = FileSecurityUtils.sanitizeFilename(tipo.name() + "_" + nombreSeguro, tipo.name() + "_" + System.currentTimeMillis());
+        Path archivoPath = FileSecurityUtils.resolveInside(usuarioDir, nombreBase);
         
         if (!Files.exists(archivoPath)) {
             return nombreBase;
         }
         
         // Si existe, agregar timestamp
-        int puntoExtension = nombreOriginal.lastIndexOf('.');
+        int puntoExtension = nombreSeguro.lastIndexOf('.');
         if (puntoExtension > 0) {
-            String sinExtension = nombreOriginal.substring(0, puntoExtension);
-            String extension = nombreOriginal.substring(puntoExtension);
-            return tipo.name() + "_" + sinExtension + "_" + System.currentTimeMillis() + extension;
+            String sinExtension = nombreSeguro.substring(0, puntoExtension);
+            String extension = nombreSeguro.substring(puntoExtension);
+            return FileSecurityUtils.sanitizeFilename(tipo.name() + "_" + sinExtension + "_" + System.currentTimeMillis() + extension, tipo.name() + "_" + System.currentTimeMillis());
         }
         
-        return tipo.name() + "_" + System.currentTimeMillis() + "_" + nombreOriginal;
+        return FileSecurityUtils.sanitizeFilename(tipo.name() + "_" + System.currentTimeMillis() + "_" + nombreSeguro, tipo.name() + "_" + System.currentTimeMillis());
     }
 
     private void validarArchivo(MultipartFile archivo, Documento.TipoDocumento tipo) {
@@ -234,38 +237,41 @@ public class DocumentoService {
         }
         if (tipo == Documento.TipoDocumento.ADJUNTO_POSTULACION) {
             if (!esFormatoSolicitud(archivo)) {
-                throw new IllegalArgumentException("El archivo " + archivo.getOriginalFilename() + " debe estar en formato PDF, Word o Excel");
+                throw new IllegalArgumentException("El archivo " + archivo.getOriginalFilename() + " debe estar en formato PDF sin metadatos, DOCX o XLSX");
+            }
+            return;
+        }
+        if (tipo == Documento.TipoDocumento.FOTO_PERFIL) {
+            if (!FileSecurityUtils.isAllowedImage(archivo)) {
+                throw new IllegalArgumentException("El archivo " + archivo.getOriginalFilename() + " debe ser una imagen válida PNG, JPG, GIF o WEBP");
             }
             return;
         }
         if (tipo != Documento.TipoDocumento.FOTO_PERFIL && !esPdf(archivo)) {
-            throw new IllegalArgumentException("El archivo " + archivo.getOriginalFilename() + " debe estar en formato PDF");
+            throw new IllegalArgumentException("El archivo " + archivo.getOriginalFilename() + " debe estar en formato PDF sin metadatos");
         }
     }
 
     private boolean esPdf(MultipartFile archivo) {
         if (archivo == null || archivo.isEmpty()) return false;
-        String contentType = archivo.getContentType();
-        String nombre = archivo.getOriginalFilename();
-        boolean mimePdf = contentType != null && contentType.toLowerCase(Locale.ROOT).contains("pdf");
-        boolean extPdf = nombre != null && nombre.toLowerCase(Locale.ROOT).endsWith(".pdf");
-        return mimePdf || extPdf;
+        return FileSecurityUtils.isPdf(archivo);
     }
 
     private boolean esFormatoSolicitud(MultipartFile archivo) {
         if (archivo == null || archivo.isEmpty()) return false;
         if (esPdf(archivo)) return true;
-        String contentType = archivo.getContentType();
-        String nombre = archivo.getOriginalFilename();
-        String mime = contentType != null ? contentType.toLowerCase(Locale.ROOT) : "";
-        String lower = nombre != null ? nombre.toLowerCase(Locale.ROOT) : "";
-        return lower.endsWith(".doc")
-                || lower.endsWith(".docx")
-                || lower.endsWith(".xls")
-                || lower.endsWith(".xlsx")
-                || mime.contains("word")
-                || mime.contains("excel")
-                || mime.contains("spreadsheet");
+        return FileSecurityUtils.isOfficeDocument(archivo);
+    }
+
+    private byte[] bytesParaGuardar(MultipartFile archivo, Documento.TipoDocumento tipo, String nombreFinal) throws IOException {
+        byte[] archivoBytes = archivo.getBytes();
+        if (tipo == Documento.TipoDocumento.FOTO_PERFIL) {
+            return FileSecurityUtils.stripImageMetadata(archivoBytes, nombreFinal);
+        }
+        if (tipo != Documento.TipoDocumento.FOTO_PERFIL) {
+            return FileSecurityUtils.stripDocumentMetadata(archivoBytes, nombreFinal);
+        }
+        return archivoBytes;
     }
 
     /**
@@ -298,11 +304,11 @@ public class DocumentoService {
     public void eliminarDocumentosPorUsuario(Long usuarioId) {
         List<Documento> documentos = documentoRepository.findByUsuarioId(usuarioId);
         // Eliminar archivos físicos
-        Path usuarioDir = Paths.get(uploadBaseDirectory, String.valueOf(usuarioId));
+        Path usuarioDir = Paths.get(uploadBaseDirectory, String.valueOf(usuarioId)).toAbsolutePath().normalize();
         if (Files.exists(usuarioDir)) {
             for (Documento doc : documentos) {
                 try {
-                    Path archivoPath = usuarioDir.resolve(doc.getNombreArchivo());
+                    Path archivoPath = FileSecurityUtils.resolveInside(usuarioDir, doc.getNombreArchivo());
                     if (Files.exists(archivoPath)) {
                         Files.delete(archivoPath);
                         log.info("Archivo físico eliminado: {}", archivoPath.toAbsolutePath());
@@ -335,7 +341,7 @@ public class DocumentoService {
                 .ifPresent(doc -> {
                     // Eliminar archivo físico si existe
                     try {
-                        Path archivoAnterior = usuarioDir.resolve(doc.getNombreArchivo());
+                        Path archivoAnterior = FileSecurityUtils.resolveInside(usuarioDir, doc.getNombreArchivo());
                         if (Files.exists(archivoAnterior)) {
                             Files.delete(archivoAnterior);
                         }
@@ -346,17 +352,17 @@ public class DocumentoService {
                 });
         
         // Guardar archivo físicamente
-        String nombreArchivo = archivo.getOriginalFilename();
-        if (nombreArchivo == null || nombreArchivo.isEmpty()) {
-            nombreArchivo = tipo.name() + "_" + System.currentTimeMillis();
-        }
+        String nombreArchivo = FileSecurityUtils.sanitizeFilename(
+                archivo.getOriginalFilename(),
+                tipo.name() + "_" + System.currentTimeMillis()
+        );
         String nombreFinal = generarNombreArchivo(tipo, nombreArchivo, usuarioDir);
-        Path archivoPath = usuarioDir.resolve(nombreFinal);
+        Path archivoPath = FileSecurityUtils.resolveInside(usuarioDir, nombreFinal);
         
         // Leer bytes del archivo una vez para reutilizar
-        byte[] archivoBytes = archivo.getBytes();
-        
-        Files.copy(archivo.getInputStream(), archivoPath, StandardCopyOption.REPLACE_EXISTING);
+        byte[] archivoBytes = bytesParaGuardar(archivo, tipo, nombreFinal);
+
+        Files.write(archivoPath, archivoBytes);
         
         log.info("Documento guardado físicamente: {}", archivoPath.toAbsolutePath());
         
@@ -365,7 +371,7 @@ public class DocumentoService {
                 .usuario(usuario)
                 .tipo(tipo)
                 .nombreArchivo(nombreFinal)
-                .contentType(archivo.getContentType() != null ? archivo.getContentType() : "application/octet-stream")
+                .contentType(FileSecurityUtils.safeContentTypeForFilename(nombreFinal))
                 .sizeBytes(archivo.getSize())
                 .contenido(archivoBytes)
                 .build());
@@ -376,7 +382,7 @@ public class DocumentoService {
             documentoRepository.findByUsuarioIdAndTipo(usuarioId, Documento.TipoDocumento.CV)
                     .ifPresent(docAnterior -> {
                         try {
-                            Path archivoAnterior = usuarioDir.resolve(docAnterior.getNombreArchivo());
+                            Path archivoAnterior = FileSecurityUtils.resolveInside(usuarioDir, docAnterior.getNombreArchivo());
                             if (Files.exists(archivoAnterior)) {
                                 Files.delete(archivoAnterior);
                             }
@@ -388,14 +394,14 @@ public class DocumentoService {
             
             // Crear nuevo CV con el mismo contenido
             String nombreCV = generarNombreArchivo(Documento.TipoDocumento.CV, nombreArchivo, usuarioDir);
-            Path archivoCVPath = usuarioDir.resolve(nombreCV);
+            Path archivoCVPath = FileSecurityUtils.resolveInside(usuarioDir, nombreCV);
             Files.copy(archivoPath, archivoCVPath, StandardCopyOption.REPLACE_EXISTING);
             
             documentoRepository.save(Documento.builder()
                     .usuario(usuario)
                     .tipo(Documento.TipoDocumento.CV)
                     .nombreArchivo(nombreCV)
-                    .contentType(archivo.getContentType() != null ? archivo.getContentType() : "application/octet-stream")
+                    .contentType(FileSecurityUtils.safeContentTypeForFilename(nombreCV))
                     .sizeBytes(archivo.getSize())
                     .contenido(archivoBytes)
                     .build());
@@ -405,7 +411,7 @@ public class DocumentoService {
             documentoRepository.findByUsuarioIdAndTipo(usuarioId, Documento.TipoDocumento.CURRICULUM)
                     .ifPresent(docAnterior -> {
                         try {
-                            Path archivoAnterior = usuarioDir.resolve(docAnterior.getNombreArchivo());
+                            Path archivoAnterior = FileSecurityUtils.resolveInside(usuarioDir, docAnterior.getNombreArchivo());
                             if (Files.exists(archivoAnterior)) {
                                 Files.delete(archivoAnterior);
                             }
@@ -417,14 +423,14 @@ public class DocumentoService {
             
             // Crear nuevo CURRICULUM con el mismo contenido
             String nombreCurriculum = generarNombreArchivo(Documento.TipoDocumento.CURRICULUM, nombreArchivo, usuarioDir);
-            Path archivoCurriculumPath = usuarioDir.resolve(nombreCurriculum);
+            Path archivoCurriculumPath = FileSecurityUtils.resolveInside(usuarioDir, nombreCurriculum);
             Files.copy(archivoPath, archivoCurriculumPath, StandardCopyOption.REPLACE_EXISTING);
             
             documentoRepository.save(Documento.builder()
                     .usuario(usuario)
                     .tipo(Documento.TipoDocumento.CURRICULUM)
                     .nombreArchivo(nombreCurriculum)
-                    .contentType(archivo.getContentType() != null ? archivo.getContentType() : "application/octet-stream")
+                    .contentType(FileSecurityUtils.safeContentTypeForFilename(nombreCurriculum))
                     .sizeBytes(archivo.getSize())
                     .contenido(archivoBytes)
                     .build());
@@ -466,7 +472,7 @@ public class DocumentoService {
             documentoRepository.findByUsuarioIdAndTipo(usuarioId, tipo)
                     .ifPresent(doc -> {
                         try {
-                            Path archivoAnterior = usuarioDir.resolve(doc.getNombreArchivo());
+                            Path archivoAnterior = FileSecurityUtils.resolveInside(usuarioDir, doc.getNombreArchivo());
                             if (Files.exists(archivoAnterior)) {
                                 Files.delete(archivoAnterior);
                             }
@@ -477,17 +483,15 @@ public class DocumentoService {
                     });
         }
         
-        String nombreArchivo = nombrePersonalizado != null && !nombrePersonalizado.isEmpty() 
-                ? nombrePersonalizado 
+        String nombreArchivo = nombrePersonalizado != null && !nombrePersonalizado.isEmpty()
+                ? FileSecurityUtils.sanitizeFilename(nombrePersonalizado, tipo.name() + "_" + System.currentTimeMillis())
                 : archivo.getOriginalFilename();
-        if (nombreArchivo == null || nombreArchivo.isEmpty()) {
-            nombreArchivo = tipo.name() + "_" + System.currentTimeMillis();
-        }
+        nombreArchivo = FileSecurityUtils.sanitizeFilename(nombreArchivo, tipo.name() + "_" + System.currentTimeMillis());
         String nombreFinal = generarNombreArchivo(tipo, nombreArchivo, usuarioDir);
-        Path archivoPath = usuarioDir.resolve(nombreFinal);
+        Path archivoPath = FileSecurityUtils.resolveInside(usuarioDir, nombreFinal);
         
-        byte[] archivoBytes = archivo.getBytes();
-        Files.copy(archivo.getInputStream(), archivoPath, StandardCopyOption.REPLACE_EXISTING);
+        byte[] archivoBytes = bytesParaGuardar(archivo, tipo, nombreFinal);
+        Files.write(archivoPath, archivoBytes);
         
         log.info("Documento guardado físicamente: {}", archivoPath.toAbsolutePath());
         
@@ -495,8 +499,8 @@ public class DocumentoService {
                 .usuario(usuario)
                 .tipo(tipo)
                 .nombreArchivo(nombreFinal)
-                .contentType(archivo.getContentType() != null ? archivo.getContentType() : "application/octet-stream")
-                .sizeBytes(archivo.getSize())
+                .contentType(FileSecurityUtils.safeContentTypeForFilename(nombreFinal))
+                .sizeBytes((long) archivoBytes.length)
                 .contenido(archivoBytes)
                 .build());
         
@@ -523,6 +527,9 @@ public class DocumentoService {
         if (tipo != Documento.TipoDocumento.FOTO_PERFIL && !ct.toLowerCase(Locale.ROOT).contains("pdf")) {
             throw new IllegalArgumentException("Solo se permiten documentos PDF para este tipo");
         }
+        if (tipo != Documento.TipoDocumento.FOTO_PERFIL && !FileSecurityUtils.hasPdfSignature(contenido)) {
+            throw new IllegalArgumentException("El documento generado debe tener firma PDF válida");
+        }
 
         Usuario usuario = usuarioRepository.findById(usuarioId)
                 .orElseThrow(() -> new IllegalArgumentException("Usuario no encontrado con ID: " + usuarioId));
@@ -531,7 +538,7 @@ public class DocumentoService {
         if (eliminarAnteriores) {
             documentoRepository.findByUsuarioIdAndTipo(usuarioId, tipo).ifPresent(doc -> {
                 try {
-                    Path archivoAnterior = usuarioDir.resolve(doc.getNombreArchivo());
+                    Path archivoAnterior = FileSecurityUtils.resolveInside(usuarioDir, doc.getNombreArchivo());
                     if (Files.exists(archivoAnterior)) {
                         Files.delete(archivoAnterior);
                     }
@@ -543,13 +550,14 @@ public class DocumentoService {
         }
 
         String nombre = (nombrePersonalizado != null && !nombrePersonalizado.isBlank())
-                ? nombrePersonalizado.trim()
+                ? FileSecurityUtils.sanitizeFilename(nombrePersonalizado.trim(), tipo.name() + "_" + System.currentTimeMillis() + ".pdf")
                 : (tipo.name() + "_" + System.currentTimeMillis() + ".pdf");
         if (!nombre.toLowerCase(Locale.ROOT).endsWith(".pdf")) {
             nombre = nombre + ".pdf";
         }
         String nombreFinal = generarNombreArchivo(tipo, nombre, usuarioDir);
-        Path archivoPath = usuarioDir.resolve(nombreFinal);
+        Path archivoPath = FileSecurityUtils.resolveInside(usuarioDir, nombreFinal);
+        contenido = FileSecurityUtils.stripDocumentMetadata(contenido, nombreFinal);
         Files.write(archivoPath, contenido);
 
         return documentoRepository.save(Documento.builder()
@@ -575,9 +583,9 @@ public class DocumentoService {
         }
         
         // Eliminar archivo físico
-        Path usuarioDir = Paths.get(uploadBaseDirectory, String.valueOf(usuarioId));
+        Path usuarioDir = Paths.get(uploadBaseDirectory, String.valueOf(usuarioId)).toAbsolutePath().normalize();
         try {
-            Path archivoPath = usuarioDir.resolve(documento.getNombreArchivo());
+            Path archivoPath = FileSecurityUtils.resolveInside(usuarioDir, documento.getNombreArchivo());
             if (Files.exists(archivoPath)) {
                 Files.delete(archivoPath);
                 log.info("Archivo físico eliminado: {}", archivoPath.toAbsolutePath());

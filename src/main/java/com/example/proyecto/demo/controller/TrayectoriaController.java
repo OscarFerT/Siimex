@@ -774,7 +774,7 @@ public class TrayectoriaController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("Error al subir certificación", e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al subir certificación: " + e.getMessage());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al subir certificación");
         }
     }
 
@@ -1060,7 +1060,15 @@ public class TrayectoriaController {
         }
         if (data.get("documentoId") != null && !data.get("documentoId").toString().isEmpty()) {
             try {
-                pi.setDocumentoId(Long.valueOf(data.get("documentoId").toString()));
+                Long documentoId = Long.valueOf(data.get("documentoId").toString());
+                Documento documento = documentoService.obtenerDocumento(documentoId)
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Documento no encontrado"));
+                if (documento.getUsuario() == null || !documento.getUsuario().getId().equals(usuario.getId())) {
+                    throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Documento no autorizado");
+                }
+                pi.setDocumentoId(documentoId);
+            } catch (ResponseStatusException e) {
+                throw e;
             } catch (Exception ignored) {}
         } else {
             pi.setDocumentoId(null);
@@ -1124,7 +1132,7 @@ public class TrayectoriaController {
             return ResponseEntity.ok(resp);
         } catch (IOException e) {
             log.error("Error al subir documento PI", e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al subir documento: " + e.getMessage());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al subir documento");
         }
     }
 

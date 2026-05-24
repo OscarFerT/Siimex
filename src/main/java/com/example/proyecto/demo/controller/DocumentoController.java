@@ -4,6 +4,7 @@ import com.example.proyecto.demo.Entity.Documento;
 import com.example.proyecto.demo.Entity.Usuario;
 import com.example.proyecto.demo.Repository.UsuarioRepository;
 import com.example.proyecto.demo.Service.DocumentoService;
+import com.example.proyecto.demo.util.FileSecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -36,10 +37,11 @@ public class DocumentoController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Documento no encontrado"));
 
         validarAccesoDocumento(auth, documento.getUsuario().getId());
+        String safeFilename = FileSecurityUtils.sanitizeFilename(documento.getNombreArchivo(), "documento");
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"" + documento.getNombreArchivo() + "\"")
+                        "attachment; filename=\"" + safeFilename + "\"")
                 .contentType(MediaType.parseMediaType(documento.getContentType()))
                 .body(documento.getContenido());
     }
@@ -185,14 +187,14 @@ public class DocumentoController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of(
                             "status", "error",
-                            "message", "Error al guardar documentos: " + e.getMessage()
+                            "message", "Error al guardar documentos"
                     ));
         } catch (Exception e) {
             log.error("Error inesperado al guardar documentos: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of(
                             "status", "error",
-                            "message", "Error al procesar la solicitud: " + e.getMessage()
+                            "message", "Error al procesar la solicitud"
                     ));
         }
     }

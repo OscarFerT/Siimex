@@ -4,6 +4,7 @@ import com.example.proyecto.demo.Entity.InstitucionEducativa;
 import com.example.proyecto.demo.Entity.Notificacion;
 import com.example.proyecto.demo.Repository.InstitucionEducativaRepository;
 import com.example.proyecto.demo.exception.ApiException;
+import com.example.proyecto.demo.util.FileSecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -28,6 +29,8 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 public class InstitucionEducativaService {
+
+    private static final long MAX_IMPORT_SIZE = 10L * 1024L * 1024L;
 
     private final InstitucionEducativaRepository institucionEducativaRepository;
     private final NotificacionService notificacionService;
@@ -154,18 +157,20 @@ public class InstitucionEducativaService {
         if (file == null || file.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Debes adjuntar un archivo para importar");
         }
-        String fileName = file.getOriginalFilename() != null ? file.getOriginalFilename().toLowerCase(Locale.ROOT) : "";
+        if (file.getSize() > MAX_IMPORT_SIZE) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El archivo de importación no puede superar 10 MB");
+        }
+        String extension = FileSecurityUtils.extensionOf(file.getOriginalFilename());
         List<List<String>> filas;
-        if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
-            filas = parsearFilasExcel(file);
-        } else {
-            String raw;
-            try {
-                raw = new String(file.getBytes(), StandardCharsets.UTF_8);
-            } catch (Exception e) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "No se pudo leer el archivo de importación");
+        if ("xlsx".equals(extension)) {
+            if (!FileSecurityUtils.isOfficeDocument(file)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Usa una plantilla XLSX válida");
             }
-            filas = parsearFilasImportacion(raw);
+            filas = parsearFilasExcel(file);
+        } else if ("csv".equals(extension) || "txt".equals(extension)) {
+            filas = parsearFilasTexto(file);
+        } else {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Solo se permiten archivos XLSX, CSV o TXT");
         }
         if (filas.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El archivo no contiene registros válidos");
@@ -254,13 +259,15 @@ public class InstitucionEducativaService {
         return String.valueOf(body.get(key));
     }
 
-    private List<List<String>> parsearFilasImportacion(String raw) {
-        String source = raw != null ? raw.trim() : "";
-        if (source.isBlank()) return List.of();
-
-        if (source.toLowerCase(Locale.ROOT).contains("<table")) {
-            return parsearTablaHtml(source);
+    private List<List<String>> parsearFilasTexto(MultipartFile file) {
+        String raw;
+        try {
+            raw = new String(file.getBytes(), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "No se pudo leer el archivo de importación");
         }
+        String source = raw.trim();
+        if (source.isBlank()) return List.of();
 
         List<List<String>> rows = new ArrayList<>();
         String[] lineas = source.replace("\r\n", "\n").replace('\r', '\n').split("\n");
@@ -304,30 +311,6 @@ public class InstitucionEducativaService {
         } catch (Exception e) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "No se pudo leer el archivo Excel. Usa una plantilla XLSX válida.");
         }
-    }
-
-    private List<List<String>> parsearTablaHtml(String html) {
-        List<List<String>> rows = new ArrayList<>();
-        String clean = html.replace("\n", " ").replace("\r", " ");
-        java.util.regex.Matcher tr = java.util.regex.Pattern.compile("(?i)<tr[^>]*>(.*?)</tr>").matcher(clean);
-        boolean primera = true;
-        while (tr.find()) {
-            String rowHtml = tr.group(1);
-            java.util.regex.Matcher td = java.util.regex.Pattern.compile("(?i)<t[dh][^>]*>(.*?)</t[dh]>").matcher(rowHtml);
-            List<String> cols = new ArrayList<>();
-            while (td.find()) {
-                String cell = td.group(1).replaceAll("(?i)<br\\s*/?>", " ");
-                cell = cell.replaceAll("<[^>]+>", "");
-                cols.add(limpiarCelda(cell));
-            }
-            if (cols.isEmpty()) continue;
-            if (primera) {
-                primera = false;
-                continue;
-            }
-            rows.add(cols);
-        }
-        return rows;
     }
 
     private char detectarDelimitador(String headerLine) {

@@ -21,6 +21,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.example.proyecto.demo.config.RedirectUnauthorizedEntryPoint;
 import com.example.proyecto.demo.security.JwtFilter;
+import com.example.proyecto.demo.security.RateLimitFilter;
+import com.example.proyecto.demo.security.SecurityAuditFilter;
 
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +33,8 @@ import lombok.RequiredArgsConstructor;
 public class SecurityConfig {
 
     private final JwtFilter jwtFilter;
+    private final RateLimitFilter rateLimitFilter;
+    private final SecurityAuditFilter securityAuditFilter;
     private final RedirectUnauthorizedEntryPoint redirectUnauthorizedEntryPoint;
 
     @Value("${app.cors.allowed-origin-patterns}")
@@ -95,6 +99,8 @@ public class SecurityConfig {
                                 "/api/auth/login/request-code",
                                 "/auth/login/verify-code",
                                 "/api/auth/login/verify-code",
+                                "/auth/logout",
+                                "/api/auth/logout",
                                 "/auth/reset-password",
                                 "/api/auth/reset-password"
                         ).permitAll()
@@ -128,7 +134,9 @@ public class SecurityConfig {
                 )
 
                 // Filtro JWT antes del filtro de usuario/clave
+                .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(securityAuditFilter, JwtFilter.class)
 
                 // 401: redirigir al login del frontend (evita Whitelabel Error Page)
                 .exceptionHandling(e -> e

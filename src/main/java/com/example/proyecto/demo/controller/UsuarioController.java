@@ -657,10 +657,13 @@ public class UsuarioController {
                     "documentoId", documento.getId(),
                     "filename", foto.getOriginalFilename()
             ));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("status", "error", "message", e.getMessage()));
         } catch (Exception e) {
             log.error("Error al guardar foto: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("status", "error", "message", e.getMessage()));
+                    .body(Map.of("status", "error", "message", "Error al guardar foto"));
         }
     }
 
@@ -693,10 +696,13 @@ public class UsuarioController {
                     "documentoId", documento.getId(),
                     "filename", curriculum.getOriginalFilename()
             ));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("status", "error", "message", e.getMessage()));
         } catch (Exception e) {
             log.error("Error al guardar currículum: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("status", "error", "message", e.getMessage()));
+                    .body(Map.of("status", "error", "message", "Error al guardar currículum"));
         }
     }
 

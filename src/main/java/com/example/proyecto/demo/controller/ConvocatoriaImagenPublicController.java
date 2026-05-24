@@ -1,5 +1,7 @@
 package com.example.proyecto.demo.controller;
 
+import com.example.proyecto.demo.util.FileSecurityUtils;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -9,7 +11,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 @RestController
 @RequestMapping("/convocatorias-imagenes")
@@ -22,29 +23,21 @@ public class ConvocatoriaImagenPublicController {
     @GetMapping("/{filename:.+}")
     public ResponseEntity<Resource> servirImagen(@PathVariable String filename) {
         try {
-            Path dir = Paths.get(uploadBaseDirectory, "convocatorias-imagenes");
-            Path file = dir.resolve(filename).normalize();
-            if (!file.startsWith(dir) || !file.toFile().exists()) {
+            String safeFilename = FileSecurityUtils.sanitizeFilename(filename, "imagen");
+            Path dir = Path.of(uploadBaseDirectory, "convocatorias-imagenes").toAbsolutePath().normalize();
+            Path file = FileSecurityUtils.resolveInside(dir, safeFilename);
+            if (!file.toFile().exists()) {
                 return ResponseEntity.notFound().build();
             }
             Resource resource = new UrlResource(file.toUri());
-            String contentType = getContentType(filename);
+            String contentType = FileSecurityUtils.safeContentTypeForFilename(safeFilename);
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(contentType))
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + safeFilename + "\"")
                     .body(resource);
         } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }
     }
 
-    private String getContentType(String filename) {
-        if (filename == null) return "application/octet-stream";
-        String lower = filename.toLowerCase();
-        if (lower.endsWith(".png")) return "image/png";
-        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-        if (lower.endsWith(".gif")) return "image/gif";
-        if (lower.endsWith(".webp")) return "image/webp";
-        return "application/octet-stream";
-    }
 }

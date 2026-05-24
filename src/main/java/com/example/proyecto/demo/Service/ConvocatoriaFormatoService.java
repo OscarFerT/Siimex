@@ -5,6 +5,7 @@ import com.example.proyecto.demo.Entity.ConvocatoriaFormato;
 import com.example.proyecto.demo.Repository.ConvocatoriaFormatoRepository;
 import com.example.proyecto.demo.Repository.ConvocatoriaRepository;
 import com.example.proyecto.demo.exception.ApiException;
+import com.example.proyecto.demo.util.FileSecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -14,7 +15,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -22,8 +22,6 @@ import java.util.Map;
 public class ConvocatoriaFormatoService {
 
     private static final long MAX_FORMATO_SIZE = 10L * 1024L * 1024L;
-    private static final List<String> EXTENSIONES_PERMITIDAS = List.of(".pdf", ".doc", ".docx", ".xls", ".xlsx");
-
     private final ConvocatoriaRepository convocatoriaRepository;
     private final ConvocatoriaFormatoRepository formatoRepository;
 
@@ -46,14 +44,22 @@ public class ConvocatoriaFormatoService {
         if (nombreVisible == null) {
             nombreVisible = quitarExtension(nombreArchivo);
         }
+        byte[] contenidoLimpio;
+        try {
+            contenidoLimpio = FileSecurityUtils.stripDocumentMetadata(file.getBytes(), nombreArchivo);
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (IOException e) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "No se pudo validar o limpiar los metadatos del archivo");
+        }
         ConvocatoriaFormato formato = formatoRepository.save(ConvocatoriaFormato.builder()
                 .convocatoria(convocatoria)
                 .nombre(limitar(nombreVisible, 180))
                 .descripcion(limitar(texto(descripcion), 500))
                 .nombreArchivo(nombreArchivo)
-                .contentType(file.getContentType() != null ? file.getContentType() : "application/octet-stream")
-                .sizeBytes(file.getSize())
-                .contenido(file.getBytes())
+                .contentType(FileSecurityUtils.safeContentTypeForFilename(nombreArchivo))
+                .sizeBytes((long) contenidoLimpio.length)
+                .contenido(contenidoLimpio)
                 .build());
         return toMap(formato);
     }
@@ -91,18 +97,13 @@ public class ConvocatoriaFormatoService {
         if (file.getSize() > MAX_FORMATO_SIZE) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El formato no puede superar 10 MB");
         }
-        String nombre = file.getOriginalFilename();
-        String lower = nombre != null ? nombre.toLowerCase(Locale.ROOT) : "";
-        boolean extensionPermitida = EXTENSIONES_PERMITIDAS.stream().anyMatch(lower::endsWith);
-        if (!extensionPermitida) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Solo se permiten formatos PDF, Word o Excel");
+        if (!FileSecurityUtils.isPdf(file) && !FileSecurityUtils.isOfficeDocument(file)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Solo se permiten formatos PDF sin metadatos, DOCX o XLSX");
         }
     }
 
     private String limpiarNombreArchivo(String original) {
-        String nombre = original != null && !original.isBlank() ? original.trim() : "formato_" + System.currentTimeMillis();
-        nombre = nombre.replaceAll("[\\\\/:*?\"<>|]+", "_");
-        return limitar(nombre, 255);
+        return limitar(FileSecurityUtils.sanitizeFilename(original, "formato_" + System.currentTimeMillis()), 255);
     }
 
     private String quitarExtension(String nombreArchivo) {

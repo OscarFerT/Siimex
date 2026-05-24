@@ -92,6 +92,20 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(body, ex.getStatusCode());
     }
 
+    /** Validaciones de negocio y seguridad de entrada. */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
+        String msg = ex.getMessage() != null ? ex.getMessage() : "Solicitud inválida";
+        log.warn("IllegalArgumentException: {}", msg);
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", java.time.Instant.now());
+        body.put("status", HttpStatus.BAD_REQUEST.value());
+        body.put("error", HttpStatus.BAD_REQUEST.getReasonPhrase());
+        body.put("message", msg);
+        body.put("detail", msg);
+        return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+    }
+
     /** Errores de configuración o envío (ej. Azure/Graph no configurado). */
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException ex) {
@@ -100,9 +114,9 @@ public class GlobalExceptionHandler {
         body.put("timestamp", java.time.Instant.now());
         body.put("status", 503);
         body.put("error", "Service Unavailable");
-        String msg = ex.getMessage() != null ? ex.getMessage() : "Error en la configuración del servicio de correo";
+        String msg = "Servicio temporalmente no disponible";
         body.put("message", msg);
-        body.put("detail", msg);
+        body.put("detail", "Detalle no expuesto por seguridad.");
         return new ResponseEntity<>(body, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
@@ -114,9 +128,21 @@ public class GlobalExceptionHandler {
         body.put("timestamp", java.time.Instant.now());
         body.put("status", 503);
         body.put("error", "Service Unavailable");
-        String msg = "Error al comunicarse con Microsoft Graph. Verifique AZURE_CLIENT_SECRET y los permisos Mail.Send. " + ex.getStatusCode();
+        String msg = "Servicio temporalmente no disponible";
         body.put("message", msg);
         body.put("detail", "Detalle no expuesto por seguridad.");
         return new ResponseEntity<>(body, HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex) {
+        log.error("Error inesperado no controlado", ex);
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", java.time.Instant.now());
+        body.put("status", 500);
+        body.put("error", "Internal Server Error");
+        body.put("message", "Error interno del servidor");
+        body.put("detail", "Detalle no expuesto por seguridad.");
+        return new ResponseEntity<>(body, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }
